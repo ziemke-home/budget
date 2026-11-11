@@ -1,0 +1,347 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Cart Tally</title>
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Cart Tally"><meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f3f4f1" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#111613" media="(prefers-color-scheme: dark)">
+<link rel="apple-touch-icon" href="icon-180.png?v=1"><link rel="icon" type="image/png" href="icon-180.png?v=1"><link rel="manifest" href="manifest.json">
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600&display=swap">
+<style>
+/* Layout: one phone column — store line on top, the cart list in the middle, a fixed "register" bar
+   (running total + one big Scan button) at the bottom, styled after a shelf price tag. */
+:root{
+  --bg:#f3f4f1; --card:#ffffff; --ink:#16201b; --muted:#637068; --line:#dfe3dd;
+  --tag:#ffd21f; --tag-ink:#1a1a12; --go:#0b6b4b; --go-ink:#ffffff; --warn:#b3261e; --chip:#e8ece6;
+  --price:'Barlow Condensed','Arial Narrow',Arial,sans-serif; --body:Inter,system-ui,-apple-system,'Segoe UI',sans-serif;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#111613; --card:#1b221e; --ink:#eef2ee; --muted:#9aa79f; --line:#2c3630;
+  --tag:#ffd21f; --tag-ink:#1a1a12; --go:#2fa57b; --go-ink:#06140e; --warn:#ff8a80; --chip:#27302b; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#111613; --card:#1b221e; --ink:#eef2ee; --muted:#9aa79f; --line:#2c3630;
+  --tag:#ffd21f; --tag-ink:#1a1a12; --go:#2fa57b; --go-ink:#06140e; --warn:#ff8a80; --chip:#27302b; color-scheme:dark }
+*{box-sizing:border-box}[hidden]{display:none!important}html{background:var(--bg)}
+body{background:var(--bg);color:var(--ink);font:15px/1.4 var(--body);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-top:calc(14px + env(safe-area-inset-top,0px));padding-bottom:calc(250px + env(safe-area-inset-bottom,0px));margin:0;-webkit-text-size-adjust:100%}
+.wrap{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
+header{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+h1{font:700 26px/1 var(--price);letter-spacing:.02em;text-transform:uppercase;margin:0}
+.store{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:13px}
+select,input,button{font:inherit;color:inherit}
+select,input[type=text],input[type=number]{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-height:40px}
+#rate{width:84px}
+:focus-visible{outline:3px solid var(--go);outline-offset:2px}
+#note{font-size:13px;color:var(--muted);background:var(--chip);border-radius:8px;padding:8px 10px}
+#list{display:flex;flex-direction:column;gap:8px;list-style:none;margin:0;padding:0}
+.row{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 10px;align-items:center}
+.row.unsure{border-color:var(--tag);box-shadow:inset 4px 0 0 var(--tag)}
+.row.fail{border-color:var(--warn)}
+.name{background:none;border:0;padding:0;text-align:left;font-weight:600;min-width:0;overflow-wrap:anywhere;cursor:pointer}
+.sub{display:flex;gap:6px;align-items:center;flex-wrap:wrap;color:var(--muted);font-size:13px}
+.chip{background:var(--chip);border:0;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;min-height:28px}
+.chip.on{background:var(--ink);color:var(--bg)}
+.amt{font:700 24px/1 var(--price);font-variant-numeric:tabular-nums;text-align:right}
+.qty{display:flex;align-items:center;gap:4px;justify-content:flex-end}
+.qty button{width:34px;height:34px;border-radius:8px;border:1px solid var(--line);background:var(--bg);font-size:18px;font-weight:600;cursor:pointer}
+.qty span{min-width:30px;text-align:center;font-variant-numeric:tabular-nums;font-weight:600}
+.spin{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--go);border-radius:50%;animation:sp .8s linear infinite;display:inline-block}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+#empty{border:2px dashed var(--line);border-radius:12px;padding:22px 16px;text-align:center;color:var(--muted)}
+#empty b{display:block;color:var(--ink);font-size:17px;margin-bottom:6px}
+.minor{display:flex;justify-content:space-between;gap:10px}
+.link{background:none;border:0;color:var(--muted);text-decoration:underline;padding:8px 0;cursor:pointer;font-size:13px}
+/* register bar */
+#bar{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);
+  padding:10px max(16px,env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));z-index:5}
+#bar .in{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:8px}
+.tot{display:grid;grid-template-columns:1fr auto;gap:2px 12px;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.tot .v{text-align:right}
+.tag{background:var(--tag);color:var(--tag-ink);border-radius:8px;padding:6px 12px;display:flex;justify-content:space-between;align-items:baseline}
+.tag small{font:600 13px var(--body);text-transform:uppercase;letter-spacing:.08em}
+.tag strong{font:700 40px/1 var(--price);font-variant-numeric:tabular-nums}
+.scan{display:flex;align-items:center;justify-content:center;gap:8px;background:var(--go);color:var(--go-ink);border-radius:12px;
+  min-height:60px;font-size:19px;font-weight:600;cursor:pointer;position:relative;overflow:hidden}
+.scan input{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer}
+.scan:focus-within{outline:3px solid var(--ink);outline-offset:2px}
+/* edit sheet */
+#shade{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+#sheet{background:var(--card);width:100%;max-width:560px;border-radius:16px 16px 0 0;display:flex;flex-direction:column;gap:12px;max-height:92%;overflow:auto;
+  padding:16px max(16px,env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+#sheet label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+#sheet input[type=text],#sheet input[type=number]{font-size:17px;color:var(--ink)}
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}.two label{min-width:0}#sheet input[type=text],#sheet input[type=number],#bSheet input,#bSheet select,#setup input{width:100%;min-width:0}
+#setup{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px}#setup label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}#setup b{font-size:17px}
+.check{flex-direction:row!important;align-items:center;gap:8px!important;color:var(--ink)!important;font-size:15px!important}
+.check input{width:22px;height:22px}
+.shops{display:flex;gap:8px;flex-wrap:wrap}
+.shops a{flex:1 1 90px;text-align:center;border:1px solid var(--line);border-radius:8px;padding:10px 6px;color:var(--ink);text-decoration:none;font-weight:600}
+.btns{display:flex;gap:8px}
+.btn{flex:1;min-height:46px;border-radius:10px;border:1px solid var(--line);background:var(--bg);font-weight:600;cursor:pointer}
+.btn.pri{background:var(--go);color:var(--go-ink);border-color:var(--go)}
+.btn.del{color:var(--warn)}
+a.btn{display:flex;align-items:center;justify-content:center;text-decoration:none}
+a.btn.off{opacity:.45;pointer-events:none}
+#send{width:100%;min-height:46px;border-radius:10px;border:1px solid var(--go);background:none;color:var(--go);font-weight:600;cursor:pointer}
+#bStores{display:flex;gap:6px;flex-wrap:wrap}
+.hint{font-size:13px;color:var(--muted)}
+</style>
+
+</head><body><div class="wrap">
+  <header>
+    <h1>Cart Tally</h1>
+    <div class="store">
+      <label for="county">Shopping in</label>
+      <select id="county"></select>
+      <input id="rate" type="number" inputmode="decimal" step="0.01" min="0" max="20" placeholder="Tax %" aria-label="Sales tax percent" hidden>
+    </div>
+  </header>
+  <div id="note" hidden></div>
+  <div id="setup" hidden>
+    <b>Connect to your budget</b>
+    <label>Budget address (your quick-save link — it has /exec in it)<input id="cfgUrl" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec"></label>
+    <label>Secret key (leave blank if the link above already has key= in it)<input id="cfgKey" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+    <div class="hint" id="cfgMsg">Both stay on this phone only.</div>
+    <button class="btn pri" id="cfgGo" type="button" style="flex:none">Connect</button>
+  </div>
+  <div id="empty"><b>Point at the shelf price tag</b>Tap Scan, snap the tag, and the item and its price land here. Keep scanning — each photo is read while you move on.</div>
+  <ul id="list"></ul>
+  <button id="send" type="button" hidden>Save this purchase to Pending</button>
+  <div class="minor">
+    <button class="link" id="manual" type="button">Add an item by hand</button>
+    <button class="link" id="clear" type="button" hidden>Start a new trip</button>
+  </div>
+  <div class="minor"><span></span><button class="link" id="recfg" type="button">Budget connection</button>
+  </div>
+</div>
+
+<div id="bar"><div class="in">
+  <div class="tot">
+    <span id="cnt">0 items</span><span class="v" id="sub">$0.00</span>
+    <span id="taxl">Sales tax</span><span class="v" id="tax">$0.00</span>
+  </div>
+  <div class="tag"><small>Expect to pay</small><strong id="total">$0.00</strong></div>
+  <label class="scan"><span id="scanTxt">📷 Scan a price tag</span>
+    <input id="cam" type="file" accept="image/*" capture="environment" aria-label="Scan a price tag">
+  </label>
+</div></div>
+
+<div id="shade" hidden><div id="sheet" role="dialog" aria-label="Edit item">
+  <label>Item<input id="eName" type="text" autocomplete="off"></label>
+  <div class="two">
+    <label>Price for one<input id="ePrice" type="number" inputmode="decimal" step="0.01" min="0"></label>
+    <label>How many<input id="eQty" type="number" inputmode="decimal" step="0.01" min="0"></label>
+  </div>
+  <label class="check"><input id="eTax" type="checkbox"> Sales tax applies to this item</label>
+  <div id="eShops">
+    <div style="font-size:13px;color:var(--muted);margin-bottom:6px">Check the price online (opens the store, where you can add it to your cart)</div>
+    <div class="shops"><a id="sW" target="_blank" rel="noopener">Walmart</a><a id="sA" target="_blank" rel="noopener">Amazon</a><a id="sT" target="_blank" rel="noopener">Target</a></div>
+  </div>
+  <div class="btns"><button class="btn del" id="eDel" type="button">Remove</button><button class="btn pri" id="eSave" type="button">Done</button></div>
+</div></div>
+
+<div id="bShade" hidden style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20;display:flex;align-items:flex-end;justify-content:center"><div id="bSheet" role="dialog" aria-label="Send to budget" style="background:var(--card);width:100%;max-width:560px;border-radius:16px 16px 0 0;display:flex;flex-direction:column;gap:12px;max-height:92%;overflow:auto;padding:16px max(16px,env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))">
+  <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)">Amount you paid<input id="bAmt" type="number" inputmode="decimal" step="0.01" min="0" style="font-size:22px;color:var(--ink)"></label>
+  <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)">Store<input id="bStore" type="text" autocomplete="off" style="font-size:17px;color:var(--ink)"></label>
+  <div id="bStores"></div>
+  <div class="two"><label style="display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)">Category<select id="bCat"></select></label><label style="display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)">Paid from<select id="bFrom"></select></label></div>
+  <div class="hint" id="bHint"></div>
+  <div class="btns"><button class="btn" id="bCancel" type="button">Cancel</button><button class="btn pri" id="bGo" type="button">Save to Pending</button></div>
+</div></div>
+<script>
+(function(){
+  var DATA={stores:[],cats:[],accts:[],defFrom:'',defCat:'',hasKey:true};
+  var COUNTIES={Alachua:1.5,Baker:1,Bay:1,Bradford:1,Brevard:1,Broward:1,Calhoun:1.5,Charlotte:1,Citrus:0,Clay:1.5,Collier:0,Columbia:1.5,DeSoto:1.5,Dixie:1,Duval:1.5,Escambia:1.5,Flagler:1,Franklin:1.5,Gadsden:1.5,Gilchrist:1,Glades:1,Gulf:1,Hamilton:2,Hardee:1,Hendry:1.5,Hernando:0.5,Highlands:1.5,Hillsborough:1.5,Holmes:1.5,"Indian River":1,Jackson:1.5,Jefferson:1,Lafayette:1,Lake:1,Lee:0.5,Leon:1.5,Levy:1,Liberty:1.5,Madison:1.5,Manatee:1,Marion:1.5,Martin:0.5,"Miami-Dade":1,Monroe:1.5,Nassau:1,Okaloosa:1,Okeechobee:1,Orange:0.5,Osceola:1.5,"Palm Beach":0.5,Pasco:1,Pinellas:1,Polk:1,Putnam:1,"St. Johns":0.5,"St. Lucie":1,"Santa Rosa":1,Sarasota:1,Seminole:1,Sumter:1,Suwannee:1,Taylor:1,Union:1,Volusia:0.5,Wakulla:1.5,Walton:1,Washington:1.5};
+  var NEAR=['Osceola','Orange','Polk','Lake','Seminole','Brevard'];
+  var KEY='cartTally1', $=function(id){return document.getElementById(id)};
+  var S={items:[],county:'Osceola',custom:''};
+  try{var raw=JSON.parse(localStorage.getItem(KEY)||'null'); if(raw&&raw.items){S=raw; S.items=S.items.filter(function(i){return i.state!=='pending'});}}catch(e){}
+  function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+  var uid=function(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)};
+  var usd=function(n){return '$'+(Math.round(n*100)/100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',')};
+  function rate(){ if(S.county==='other') return Math.max(0,Number(S.custom)||0); return 6+(COUNTIES[S.county]||0); }
+  function totals(){
+    var sub=0,taxable=0,n=0;
+    S.items.forEach(function(i){ if(i.state==='pending'||!(i.price>0)) return; var line=Math.round(i.price*i.qty*100)/100; sub+=line; if(i.taxable) taxable+=line; n+=i.unit==='lb'?1:Math.max(1,Math.round(i.qty)); });
+    var tax=Math.round(taxable*rate())/100;
+    return {sub:sub,tax:tax,total:sub+tax,n:n};
+  }
+  window.__cartTotals=totals;
+
+  // ---- store / tax picker
+  var sel=$('county');
+  function opt(v,t,g){var o=document.createElement('option');o.value=v;o.textContent=t;(g||sel).appendChild(o)}
+  var g1=document.createElement('optgroup');g1.label='Near home';NEAR.forEach(function(c){opt(c,c+' · '+(6+COUNTIES[c])+'%',g1)});sel.appendChild(g1);
+  var g2=document.createElement('optgroup');g2.label='All Florida counties';Object.keys(COUNTIES).forEach(function(c){if(NEAR.indexOf(c)<0)opt(c,c+' · '+(6+COUNTIES[c])+'%',g2)});sel.appendChild(g2);
+  opt('other','Somewhere else…');
+  sel.value=S.county; $('rate').value=S.custom; $('rate').hidden=S.county!=='other';
+  sel.onchange=function(){S.county=sel.value;$('rate').hidden=S.county!=='other';save();draw()};
+  $('rate').oninput=function(){S.custom=$('rate').value;save();draw()};
+
+  // ---- drawing
+  function el(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
+  function draw(){
+    var list=$('list');list.textContent='';
+    S.items.slice().reverse().forEach(function(i){
+      var li=el('li','row'+(i.state==='fail'?' fail':i.unsure?' unsure':''));
+      if(i.state==='pending'){
+        var p=el('div','sub');p.appendChild(el('span','spin'));p.appendChild(el('span',null,'Reading the tag…'));
+        li.appendChild(p);li.appendChild(el('div','amt','—'));list.appendChild(li);return;
+      }
+      var name=el('button','name',i.state==='fail'?'Couldn’t read that tag — tap to fill in':i.name);name.type='button';name.onclick=function(){edit(i.id)};
+      li.appendChild(name);
+      li.appendChild(el('div','amt',i.price>0?usd(i.price*i.qty):'—'));
+      var sub=el('div','sub');
+      if(i.price>0) sub.appendChild(el('span',null,usd(i.price)+(i.unit==='lb'?' / lb':' each')));
+      var chip=el('button','chip'+(i.taxable?' on':''),i.taxable?'Taxed':'No tax');chip.type='button';chip.setAttribute('aria-pressed',i.taxable?'true':'false');
+      chip.onclick=function(){i.taxable=!i.taxable;save();draw()};sub.appendChild(chip);
+      if(i.unsure&&i.state!=='fail') sub.appendChild(el('span',null,'Check price'));
+      li.appendChild(sub);
+      var q=el('div','qty'),step=i.unit==='lb'?0.5:1;
+      var m=el('button',null,'−');m.type='button';m.setAttribute('aria-label','One less');
+      m.onclick=function(){ if(i.qty-step<=0){S.items=S.items.filter(function(x){return x!==i});} else i.qty=Math.round((i.qty-step)*100)/100; save();draw()};
+      var pl=el('button',null,'+');pl.type='button';pl.setAttribute('aria-label','One more');
+      pl.onclick=function(){i.qty=Math.round((i.qty+step)*100)/100;save();draw()};
+      q.appendChild(m);q.appendChild(el('span',null,i.qty+(i.unit==='lb'?' lb':'')));q.appendChild(pl);li.appendChild(q);
+      list.appendChild(li);
+    });
+    var t=totals();
+    $('empty').hidden=S.items.length>0; $('clear').hidden=S.items.length===0; $('send').hidden=!(t.total>0);
+    $('cnt').textContent=t.n+(t.n===1?' item':' items');
+    $('sub').textContent=usd(t.sub);
+    $('taxl').textContent='Sales tax ('+rate()+'% on taxed items)';
+    $('tax').textContent=usd(t.tax); $('total').textContent=usd(t.total);
+  }
+
+  // ---- reading a tag photo
+  var canRead=true;
+  // ---- talking to the budget script (address + key are kept on this phone only)
+  function api(fn,extra){
+    var body={app:'cart',key:(S.cfg||{}).key,fn:fn}; for(var k in (extra||{})) body[k]=extra[k];
+    return fetch(S.cfg.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(body),redirect:'follow'})
+      .then(function(r){return r.text()}).then(function(t){
+        var o; try{o=JSON.parse(t)}catch(e){throw new Error('The budget address didn’t answer correctly — check it in “Budget connection”.')}
+        if(!o.ok) throw new Error(o.error||'failed'); return o.data; });
+  }
+  function note(msg){var n=$('note');n.hidden=!msg;n.textContent=msg||''}
+  function readTag(file){
+    var it={id:uid(),state:'pending',name:'',price:0,qty:1,unit:'each',taxable:true,upc:null,unsure:false};
+    S.items.push(it);draw();
+    shrink(file,function(b64){
+      if(!b64){it.state='fail';it.unsure=true;note('That photo couldn’t be opened. Try again.');save();draw();return;}
+      api('readTag',{img:b64,mime:'image/jpeg'}).then(function(r){
+        r=r||{}; var p=Number(r.price);
+        it.name=String(r.name||'').slice(0,80)||'Item'; it.price=p>0?Math.round(p*100)/100:0;
+        it.unit=r.unit==='lb'?'lb':'each'; it.taxable=r.taxable!==false; it.upc=r.upc?String(r.upc).replace(/\D/g,''):null;
+        it.unsure=!r.sure||!(p>0); it.state=(p>0||r.name)?'ok':'fail'; note(''); save(); draw();
+      }).catch(function(e){
+        it.state='fail'; it.unsure=true; var m=String(e&&e.message||e);
+        if(/NOKEY/.test(m)) note('Tag reading isn’t set up yet. In the sheet: 💰 Budget menu → 🛒 Cart Tally setup.');
+        else if(/BUSY/.test(m)) note('Google’s free reader is busy or out of scans for today. Wait a minute and rescan, or tap the item to type the price.');
+        else if(/Failed to fetch|Load failed|NetworkError/i.test(m)) note('No connection to your budget just now. Rescan when you have signal, or tap the item to type the price.');
+        else note('One tag couldn’t be read ('+m.replace(/^Error:\s*/,'').slice(0,90)+'). Scan it again or tap it to fill in the price.');
+        save(); draw();
+      });
+    });
+  }
+  function shrink(file,cb){
+    var url=URL.createObjectURL(file), img=new Image();
+    img.onload=function(){
+      var out=''; try{ var k=Math.min(1,1400/Math.max(img.width,img.height)), c=document.createElement('canvas');
+        c.width=Math.round(img.width*k); c.height=Math.round(img.height*k); c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+        out=c.toDataURL('image/jpeg',0.82).split(',')[1]; }catch(e){}
+      URL.revokeObjectURL(url); cb(out);
+    };
+    img.onerror=function(){URL.revokeObjectURL(url);cb('')}; img.src=url;
+  }
+  $('cam').onchange=function(){ var f=this.files&&this.files[0]; this.value=''; if(f&&canRead) readTag(f); };
+  // ---- one-time connection
+  function showSetup(on,msg){ $('setup').hidden=!on; if(on){$('cfgUrl').value=(S.cfg||{}).url||'';$('cfgKey').value=(S.cfg||{}).key||'';} if(msg)$('cfgMsg').textContent=msg;
+    document.querySelector('.scan').style.opacity=S.cfg?'1':'.45'; }
+  function loadData(){ if(!S.cfg) return Promise.resolve();
+    return api('data').then(function(d){DATA=d;S.data=d;save();}); }
+  $('cfgGo').onclick=function(){
+    var raw=$('cfgUrl').value.trim(), m=raw.match(/^https:\/\/script\.google\.com\/[^?#\s]+\/exec/), k=$('cfgKey').value.trim()||((raw.match(/[?&]key=([^&#\s]+)/)||[])[1]||'');
+    if(!m){$('cfgMsg').textContent='That doesn’t look like the budget address — it starts with https://script.google.com and has /exec in it.';return;}
+    if(!k){$('cfgMsg').textContent='Add the secret key (sheet: 💰 Budget menu → ⌚ Quick-save setup).';return;}
+    var old=S.cfg, go=this; S.cfg={url:m[0],key:decodeURIComponent(k)}; go.disabled=true; $('cfgMsg').textContent='Checking…';
+    loadData().then(function(){go.disabled=false;save();showSetup(false);note(DATA.hasKey?'✅ Connected to your budget.':'✅ Connected. Tag reading still needs its key: sheet → 💰 Budget menu → 🛒 Cart Tally setup.');})
+      .catch(function(e){go.disabled=false;S.cfg=old;var t=String(e&&e.message||e);
+        $('cfgMsg').textContent=/key/i.test(t)?'The budget answered, but the key doesn’t match.':/Failed to fetch|Load failed/i.test(t)?'Couldn’t reach that address. Check the link, and that the web app is deployed for “Anyone”.':t;});
+  };
+  $('recfg').onclick=function(){showSetup($('setup').hidden,'Both stay on this phone only.')};
+  if(S.data) DATA=S.data;
+  if(!S.cfg) showSetup(true); else { showSetup(false); loadData().catch(function(){}); }
+  document.querySelector('.scan').addEventListener('click',function(e){ if(!S.cfg){e.preventDefault();showSetup(true,'Connect to your budget first — the tag reader runs through it.');$('setup').scrollIntoView({block:'center'});} },true);
+
+  // ---- edit sheet
+  var cur=null;
+  function addManual(){var it={id:uid(),state:'ok',name:'',price:0,qty:1,unit:'each',taxable:true,upc:null,unsure:false,fresh:true};S.items.push(it);edit(it.id)}
+  $('manual').onclick=addManual;
+  function edit(id){
+    cur=S.items.filter(function(i){return i.id===id})[0]; if(!cur) return;
+    $('eName').value=cur.name||''; $('ePrice').value=cur.price>0?cur.price:''; $('eQty').value=cur.qty; $('eTax').checked=!!cur.taxable;
+    var q=encodeURIComponent(cur.name||''), has=!!cur.name;
+    $('eShops').hidden=!has;
+    $('sW').href='https://www.walmart.com/search?q='+(cur.upc&&cur.upc.length>=11?cur.upc:q);
+    $('sA').href='https://www.amazon.com/s?k='+q; $('sT').href='https://www.target.com/s?searchTerm='+q;
+    $('shade').hidden=false; (cur.price>0?$('eName'):$('ePrice')).focus();
+  }
+  function close(keep){
+    if(cur){
+      if(keep){
+        cur.name=$('eName').value.trim()||'Item'; cur.price=Math.max(0,Math.round((Number($('ePrice').value)||0)*100)/100);
+        cur.qty=Math.max(0.01,Number($('eQty').value)||1); cur.taxable=$('eTax').checked; cur.unsure=false; cur.state='ok'; delete cur.fresh;
+      } else S.items=S.items.filter(function(i){return i!==cur});
+    }
+    cur=null; $('shade').hidden=true; save(); draw();
+  }
+  $('eSave').onclick=function(){close(true)}; $('eDel').onclick=function(){close(false)};
+  $('shade').addEventListener('click',function(e){ if(e.target===this){ if(cur&&cur.fresh&&!$('ePrice').value) close(false); else close(true);} });
+
+  // ---- save the purchase straight to the Pending tab
+  function fill(sel,list,val){sel.textContent='';list.forEach(function(n){var o=document.createElement('option');o.value=n;o.textContent=n;sel.appendChild(o)});if(val&&list.indexOf(val)>=0)sel.value=val}
+  function storeCat(name){var k=String(name||'').toLowerCase().replace(/[^a-z0-9]/g,''); if(!k) return '';
+    var hit=DATA.stores.filter(function(s){var n=s.n.toLowerCase().replace(/[^a-z0-9]/g,'');return n===k||(k.length>=3&&n.indexOf(k)===0)})[0]; return hit?hit.cat:''}
+  function bUpdate(pick){
+    var amt=Number($('bAmt').value)||0, c=pick?storeCat($('bStore').value):''; if(c) $('bCat').value=c;
+    $('bGo').disabled=!(amt>0&&$('bFrom').value&&$('bCat').value);
+    $('bHint').textContent=DATA.cats.length?'Adds one ⏳ Pending purchase to your budget for the whole cart.':'Your categories haven’t loaded yet — check your signal, then close and reopen this.';
+  }
+  $('send').onclick=function(){
+    if(!S.cfg){showSetup(true);return;}
+    $('bAmt').value=totals().total.toFixed(2); $('bStore').value=S.lastStore||'';
+    fill($('bCat'),DATA.cats,S.lastCat||DATA.defCat); fill($('bFrom'),DATA.accts,S.lastFrom||DATA.defFrom);
+    var box=$('bStores'); box.textContent='';
+    (S.stores||[]).forEach(function(n){var c=el('button','chip',n);c.type='button';c.onclick=function(){$('bStore').value=n;bUpdate(true)};box.appendChild(c)});
+    $('bGo').textContent='Save to Pending'; bUpdate(true); $('bShade').hidden=false;
+    if(!DATA.cats.length) loadData().then(function(){fill($('bCat'),DATA.cats,DATA.defCat);fill($('bFrom'),DATA.accts,DATA.defFrom);bUpdate(true)}).catch(function(){});
+  };
+  $('bAmt').oninput=function(){bUpdate(false)}; $('bStore').oninput=function(){bUpdate(true)};
+  $('bCat').onchange=$('bFrom').onchange=function(){bUpdate(false)};
+  $('bCancel').onclick=function(){$('bShade').hidden=true};
+  $('bShade').addEventListener('click',function(e){if(e.target===this)this.hidden=true});
+  $('bGo').onclick=function(){
+    var go=this, store=$('bStore').value.trim(), rec={amt:Math.round((Number($('bAmt').value)||0)*100)/100,store:store,cat:$('bCat').value,from:$('bFrom').value};
+    go.disabled=true; go.textContent='Saving…';
+    api('save',{rec:rec}).then(function(msg){
+      if(store){ S.lastStore=store; S.stores=[store].concat((S.stores||[]).filter(function(n){return n.toLowerCase()!==store.toLowerCase()})).slice(0,8); }
+      S.lastCat=rec.cat; S.lastFrom=rec.from; save(); $('bShade').hidden=true;
+      note('✅ '+msg+' Tap “Start a new trip” when you’re done.'); window.scrollTo(0,0);
+    }).catch(function(e){
+      go.disabled=false; go.textContent='Save to Pending'; $('bHint').textContent='Not saved — '+String(e&&e.message||e).replace(/^Error:\s*/,'');
+    });
+  };
+
+  // ---- new trip (two taps instead of a confirm box)
+  var armed=null;
+  $('clear').onclick=function(){
+    if(armed){clearTimeout(armed);armed=null;this.textContent='Start a new trip';S.items=[];save();note('');draw();return;}
+    var b=this;b.textContent='Tap again to empty the cart';armed=setTimeout(function(){armed=null;b.textContent='Start a new trip'},4000);
+  };
+  draw();
+})();
+</script>
+</body></html>
