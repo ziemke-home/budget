@@ -225,13 +225,26 @@ a.btn.off{opacity:.45;pointer-events:none}
         var o; try{o=JSON.parse(t)}catch(e){throw new Error('The budget address didn’t answer correctly — check it in “Budget connection”.')}
         if(!o.ok) throw new Error(o.error||'failed'); return o.data; });
   }
+  // v247: scans go to the budget one at a time (several at once can overload the free reader), and a dropped request is retried once
+  var queue=Promise.resolve();
+  function netErr(e){return /Failed to fetch|Load failed|NetworkError|network connection/i.test(String(e&&e.message||e))}
+  function readTagApi(b64){
+    var job=queue.then(function(){
+      return api('readTag',{img:b64,mime:'image/jpeg'}).catch(function(e){
+        if(!netErr(e)) throw e;
+        return new Promise(function(r){setTimeout(r,2500)}).then(function(){return api('readTag',{img:b64,mime:'image/jpeg'})});
+      });
+    });
+    queue=job.catch(function(){});
+    return job;
+  }
   function note(msg){var n=$('note');n.hidden=!msg;n.textContent=msg||''}
   function readTag(file){
     var it={id:uid(),state:'pending',name:'',price:0,qty:1,unit:'each',taxable:true,upc:null,unsure:false};
     S.items.push(it);draw();
     shrink(file,function(b64){
       if(!b64){it.state='fail';it.unsure=true;note('That photo couldn’t be opened. Try again.');save();draw();return;}
-      api('readTag',{img:b64,mime:'image/jpeg'}).then(function(r){
+      readTagApi(b64).then(function(r){
         r=r||{}; var p=Number(r.price);
         it.name=String(r.name||'').slice(0,80)||'Item'; it.price=p>0?Math.round(p*100)/100:0;
         it.unit=r.unit==='lb'?'lb':'each'; it.taxable=r.taxable!==false; it.upc=r.upc?String(r.upc).replace(/\D/g,''):null;
@@ -243,7 +256,7 @@ a.btn.off{opacity:.45;pointer-events:none}
         it.state='fail'; it.unsure=true; var m=String(e&&e.message||e);
         if(/NOKEY/.test(m)) note('Tag reading isn’t set up yet. In the sheet: 💰 Budget menu → 🛒 Cart Tally setup.');
         else if(/BUSY/.test(m)) note('Google’s free reader is busy or out of scans for today. Wait a minute and rescan, or tap the item to type the price.');
-        else if(/Failed to fetch|Load failed|NetworkError/i.test(m)) note('No connection to your budget just now. Rescan when you have signal, or tap the item to type the price.');
+        else if(/Failed to fetch|Load failed|NetworkError/i.test(m)) note('Your budget didn’t answer in time (tried twice). Rescan that tag, or tap the item to type the price. If this keeps happening, tell Claude.');
         else note('One tag couldn’t be read ('+m.replace(/^Error:\s*/,'').slice(0,90)+'). Scan it again up close (let the tag fill most of the photo) or tap it to fill in the price.');
         save(); draw();
       });
@@ -252,9 +265,9 @@ a.btn.off{opacity:.45;pointer-events:none}
   function shrink(file,cb){
     var url=URL.createObjectURL(file), img=new Image();
     img.onload=function(){
-      var out=''; try{ var k=Math.min(1,2000/Math.max(img.width,img.height)), c=document.createElement('canvas');
+      var out=''; try{ var k=Math.min(1,1600/Math.max(img.width,img.height)), c=document.createElement('canvas');
         c.width=Math.round(img.width*k); c.height=Math.round(img.height*k); c.getContext('2d').drawImage(img,0,0,c.width,c.height);
-        out=c.toDataURL('image/jpeg',0.9).split(',')[1]; }catch(e){}
+        out=c.toDataURL('image/jpeg',0.85).split(',')[1]; }catch(e){}
       URL.revokeObjectURL(url); cb(out);
     };
     img.onerror=function(){URL.revokeObjectURL(url);cb('')}; img.src=url;
