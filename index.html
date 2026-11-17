@@ -237,7 +237,8 @@ a.btn.off{opacity:.45;pointer-events:none}
         it.unit=r.unit==='lb'?'lb':'each'; it.taxable=r.taxable!==false; it.upc=r.upc?String(r.upc).replace(/\D/g,''):null;
         it.wt=Number(r.weight)>0?Number(r.weight):null; it.perLb=Number(r.perLb)>0?Number(r.perLb):null;
         if(it.wt&&it.perLb&&it.unit==='lb'&&Math.abs(it.wt*it.perLb-it.price)<0.02) it.unit='each';   // weighed package read as per-lb: the price is the package total
-        it.unsure=!r.sure||!(p>0); it.state=(p>0||r.name)?'ok':'fail'; note(''); save(); draw();
+        it.unsure=!r.sure||!(p>0); it.state=(p>0||r.name)?'ok':'fail';
+        note(p>0?'':('That tag didn’t give a price'+(r.why?' ('+String(r.why).slice(0,90)+')':'')+'. Tap the item to type it, or rescan.')); save(); draw();
       }).catch(function(e){
         it.state='fail'; it.unsure=true; var m=String(e&&e.message||e);
         if(/NOKEY/.test(m)) note('Tag reading isn’t set up yet. In the sheet: 💰 Budget menu → 🛒 Cart Tally setup.');
