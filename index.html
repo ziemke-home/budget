@@ -106,7 +106,7 @@ a.btn.off{opacity:.45;pointer-events:none}
     <div class="hint" id="cfgMsg">Both stay on this phone only.</div>
     <button class="btn pri" id="cfgGo" type="button" style="flex:none">Connect</button>
   </div>
-  <div id="empty"><b>Point at the shelf price tag</b>Tap Scan, snap the tag, and the item and its price land here. Keep scanning — each photo is read while you move on.</div>
+  <div id="empty"><b>Point at the shelf price tag</b>Tap Scan and get close, so the shelf tag fills most of the photo. The item and its price land here. Keep scanning — each photo is read while you move on.</div>
   <ul id="list"></ul>
   <button id="send" type="button" hidden>Save this purchase to Pending</button>
   <div class="minor">
@@ -243,7 +243,7 @@ a.btn.off{opacity:.45;pointer-events:none}
         if(/NOKEY/.test(m)) note('Tag reading isn’t set up yet. In the sheet: 💰 Budget menu → 🛒 Cart Tally setup.');
         else if(/BUSY/.test(m)) note('Google’s free reader is busy or out of scans for today. Wait a minute and rescan, or tap the item to type the price.');
         else if(/Failed to fetch|Load failed|NetworkError/i.test(m)) note('No connection to your budget just now. Rescan when you have signal, or tap the item to type the price.');
-        else note('One tag couldn’t be read ('+m.replace(/^Error:\s*/,'').slice(0,90)+'). Scan it again or tap it to fill in the price.');
+        else note('One tag couldn’t be read ('+m.replace(/^Error:\s*/,'').slice(0,90)+'). Scan it again up close (let the tag fill most of the photo) or tap it to fill in the price.');
         save(); draw();
       });
     });
@@ -251,9 +251,9 @@ a.btn.off{opacity:.45;pointer-events:none}
   function shrink(file,cb){
     var url=URL.createObjectURL(file), img=new Image();
     img.onload=function(){
-      var out=''; try{ var k=Math.min(1,1400/Math.max(img.width,img.height)), c=document.createElement('canvas');
+      var out=''; try{ var k=Math.min(1,2000/Math.max(img.width,img.height)), c=document.createElement('canvas');
         c.width=Math.round(img.width*k); c.height=Math.round(img.height*k); c.getContext('2d').drawImage(img,0,0,c.width,c.height);
-        out=c.toDataURL('image/jpeg',0.82).split(',')[1]; }catch(e){}
+        out=c.toDataURL('image/jpeg',0.9).split(',')[1]; }catch(e){}
       URL.revokeObjectURL(url); cb(out);
     };
     img.onerror=function(){URL.revokeObjectURL(url);cb('')}; img.src=url;
