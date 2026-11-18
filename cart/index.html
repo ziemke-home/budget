@@ -106,14 +106,14 @@ a.btn.off{opacity:.45;pointer-events:none}
     <div class="hint" id="cfgMsg">Both stay on this phone only.</div>
     <button class="btn pri" id="cfgGo" type="button" style="flex:none">Connect</button>
   </div>
-  <div id="empty"><b>Point at the shelf price tag</b>Tap Scan, snap the tag, and the item and its price land here. Keep scanning — each photo is read while you move on.</div>
+  <div id="empty"><b>Point at the shelf price tag</b>Tap Scan and get close, so the shelf tag fills most of the photo. The item and its price land here. Keep scanning — each photo is read while you move on.</div>
   <ul id="list"></ul>
   <button id="send" type="button" hidden>Save this purchase to Pending</button>
   <div class="minor">
     <button class="link" id="manual" type="button">Add an item by hand</button>
     <button class="link" id="clear" type="button" hidden>Start a new trip</button>
   </div>
-  <div class="minor"><span></span><button class="link" id="recfg" type="button">Budget connection</button>
+  <div class="minor"><span id="bld" style="font-size:11px;color:var(--muted);align-self:center">v248</span><button class="link" id="recfg" type="button">Budget connection</button>
   </div>
 </div>
 
@@ -151,6 +151,18 @@ a.btn.off{opacity:.45;pointer-events:none}
   <div class="btns"><button class="btn" id="bCancel" type="button">Cancel</button><button class="btn pri" id="bGo" type="button">Save to Pending</button></div>
 </div></div>
 <script>
+/* v248: installs updates by itself — see version.txt */
+(function(){var BUILD='248';
+  function check(){ try{ fetch('version.txt?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():''}).then(function(v){
+    v=String(v||'').trim(); if(!(v&&v!==BUILD&&/^\d+$/.test(v))||document.querySelector('.spin')) return;
+    var k='cartTallyTried', t=''; try{t=localStorage.getItem(k)||''}catch(e){}
+    if(t===v+'|'+BUILD) return;   // already tried to load that version from this one — GitHub is still catching up; try again next time
+    try{localStorage.setItem(k,v+'|'+BUILD)}catch(e){}
+    location.replace(location.pathname+'?v='+v+'&t='+Date.now());
+  }).catch(function(){}); }catch(e){} }
+  check(); document.addEventListener('visibilitychange',function(){ if(!document.hidden) check(); });
+  window.__BUILD=BUILD;
+})();
 (function(){
   var DATA={stores:[],cats:[],accts:[],defFrom:'',defCat:'',hasKey:true};
   var COUNTIES={Alachua:1.5,Baker:1,Bay:1,Bradford:1,Brevard:1,Broward:1,Calhoun:1.5,Charlotte:1,Citrus:0,Clay:1.5,Collier:0,Columbia:1.5,DeSoto:1.5,Dixie:1,Duval:1.5,Escambia:1.5,Flagler:1,Franklin:1.5,Gadsden:1.5,Gilchrist:1,Glades:1,Gulf:1,Hamilton:2,Hardee:1,Hendry:1.5,Hernando:0.5,Highlands:1.5,Hillsborough:1.5,Holmes:1.5,"Indian River":1,Jackson:1.5,Jefferson:1,Lafayette:1,Lake:1,Lee:0.5,Leon:1.5,Levy:1,Liberty:1.5,Madison:1.5,Manatee:1,Marion:1.5,Martin:0.5,"Miami-Dade":1,Monroe:1.5,Nassau:1,Okaloosa:1,Okeechobee:1,Orange:0.5,Osceola:1.5,"Palm Beach":0.5,Pasco:1,Pinellas:1,Polk:1,Putnam:1,"St. Johns":0.5,"St. Lucie":1,"Santa Rosa":1,Sarasota:1,Seminole:1,Sumter:1,Suwannee:1,Taylor:1,Union:1,Volusia:0.5,Wakulla:1.5,Walton:1,Washington:1.5};
@@ -187,14 +199,14 @@ a.btn.off{opacity:.45;pointer-events:none}
     S.items.slice().reverse().forEach(function(i){
       var li=el('li','row'+(i.state==='fail'?' fail':i.unsure?' unsure':''));
       if(i.state==='pending'){
-        var p=el('div','sub');p.appendChild(el('span','spin'));p.appendChild(el('span',null,'Reading the tag…'));
+        var p=el('div','sub');p.appendChild(el('span','spin'));p.appendChild(el('span','rd','Reading the tag…'));
         li.appendChild(p);li.appendChild(el('div','amt','—'));list.appendChild(li);return;
       }
       var name=el('button','name',i.state==='fail'?'Couldn’t read that tag — tap to fill in':i.name);name.type='button';name.onclick=function(){edit(i.id)};
       li.appendChild(name);
       li.appendChild(el('div','amt',i.price>0?usd(i.price*i.qty):'—'));
       var sub=el('div','sub');
-      if(i.price>0) sub.appendChild(el('span',null,usd(i.price)+(i.unit==='lb'?' / lb':' each')));
+      if(i.price>0) sub.appendChild(el('span',null,(i.wt&&i.perLb&&i.unit!=='lb')?(i.wt+' lb at '+usd(i.perLb)+'/lb'):(usd(i.price)+(i.unit==='lb'?' / lb':' each'))));
       var chip=el('button','chip'+(i.taxable?' on':''),i.taxable?'Taxed':'No tax');chip.type='button';chip.setAttribute('aria-pressed',i.taxable?'true':'false');
       chip.onclick=function(){i.taxable=!i.taxable;save();draw()};sub.appendChild(chip);
       if(i.unsure&&i.state!=='fail') sub.appendChild(el('span',null,'Check price'));
@@ -225,23 +237,44 @@ a.btn.off{opacity:.45;pointer-events:none}
         var o; try{o=JSON.parse(t)}catch(e){throw new Error('The budget address didn’t answer correctly — check it in “Budget connection”.')}
         if(!o.ok) throw new Error(o.error||'failed'); return o.data; });
   }
+  // v247: scans go to the budget one at a time (several at once can overload the free reader), and a dropped request is retried once
+  var queue=Promise.resolve();
+  function netErr(e){return /Failed to fetch|Load failed|NetworkError|network connection/i.test(String(e&&e.message||e))}
+  function readTagApi(b64){
+    var job=queue.then(function(){
+      var s0=Date.now();
+      return api('readTag',{img:b64,mime:'image/jpeg'}).catch(function(e){
+        if(!netErr(e)) throw e;
+        if(Date.now()-s0>40000){ var x=new Error('SLOW'); throw x; }
+        return new Promise(function(r){setTimeout(r,2500)}).then(function(){return api('readTag',{img:b64,mime:'image/jpeg'})});
+      });
+    });
+    queue=job.catch(function(){});
+    return job;
+  }
   function note(msg){var n=$('note');n.hidden=!msg;n.textContent=msg||''}
+  setInterval(function(){ var t=Date.now(); [].forEach.call(document.querySelectorAll('.rd'),function(x,i){
+    var pend=S.items.filter(function(z){return z.state==='pending'}).slice().reverse()[i]; if(pend&&pend.t0) x.textContent='Reading the tag… '+Math.round((t-pend.t0)/1000)+'s'; }); },1000);
   function readTag(file){
-    var it={id:uid(),state:'pending',name:'',price:0,qty:1,unit:'each',taxable:true,upc:null,unsure:false};
+    var it={id:uid(),state:'pending',name:'',price:0,qty:1,unit:'each',taxable:true,upc:null,unsure:false,t0:Date.now()};
     S.items.push(it);draw();
     shrink(file,function(b64){
       if(!b64){it.state='fail';it.unsure=true;note('That photo couldn’t be opened. Try again.');save();draw();return;}
-      api('readTag',{img:b64,mime:'image/jpeg'}).then(function(r){
+      readTagApi(b64).then(function(r){
         r=r||{}; var p=Number(r.price);
         it.name=String(r.name||'').slice(0,80)||'Item'; it.price=p>0?Math.round(p*100)/100:0;
         it.unit=r.unit==='lb'?'lb':'each'; it.taxable=r.taxable!==false; it.upc=r.upc?String(r.upc).replace(/\D/g,''):null;
-        it.unsure=!r.sure||!(p>0); it.state=(p>0||r.name)?'ok':'fail'; note(''); save(); draw();
+        it.wt=Number(r.weight)>0?Number(r.weight):null; it.perLb=Number(r.perLb)>0?Number(r.perLb):null;
+        if(it.wt&&it.perLb&&it.unit==='lb'&&Math.abs(it.wt*it.perLb-it.price)<0.02) it.unit='each';   // weighed package read as per-lb: the price is the package total
+        it.unsure=!r.sure||!(p>0); it.state=(p>0||r.name)?'ok':'fail';
+        note(p>0?'':('That tag didn’t give a price'+(r.why?' ('+String(r.why).slice(0,90)+')':'')+'. Tap the item to type it, or rescan.')); save(); draw();
       }).catch(function(e){
         it.state='fail'; it.unsure=true; var m=String(e&&e.message||e);
         if(/NOKEY/.test(m)) note('Tag reading isn’t set up yet. In the sheet: 💰 Budget menu → 🛒 Cart Tally setup.');
+        else if(/SLOW/.test(m)) note('That tag took too long to read. Rescan it, or tap the item to type the price.');
         else if(/BUSY/.test(m)) note('Google’s free reader is busy or out of scans for today. Wait a minute and rescan, or tap the item to type the price.');
-        else if(/Failed to fetch|Load failed|NetworkError/i.test(m)) note('No connection to your budget just now. Rescan when you have signal, or tap the item to type the price.');
-        else note('One tag couldn’t be read ('+m.replace(/^Error:\s*/,'').slice(0,90)+'). Scan it again or tap it to fill in the price.');
+        else if(/Failed to fetch|Load failed|NetworkError/i.test(m)) note('Couldn’t reach your budget (tried twice). If you’re on store Wi-Fi, turn Wi-Fi off and rescan — or tap the item to type the price.');
+        else note('One tag couldn’t be read ('+m.replace(/^Error:\s*/,'').slice(0,90)+'). Scan it again up close (let the tag fill most of the photo) or tap it to fill in the price.');
         save(); draw();
       });
     });
@@ -249,9 +282,9 @@ a.btn.off{opacity:.45;pointer-events:none}
   function shrink(file,cb){
     var url=URL.createObjectURL(file), img=new Image();
     img.onload=function(){
-      var out=''; try{ var k=Math.min(1,1400/Math.max(img.width,img.height)), c=document.createElement('canvas');
+      var out=''; try{ var k=Math.min(1,1280/Math.max(img.width,img.height)), c=document.createElement('canvas');
         c.width=Math.round(img.width*k); c.height=Math.round(img.height*k); c.getContext('2d').drawImage(img,0,0,c.width,c.height);
-        out=c.toDataURL('image/jpeg',0.82).split(',')[1]; }catch(e){}
+        out=c.toDataURL('image/jpeg',0.8).split(',')[1]; }catch(e){}
       URL.revokeObjectURL(url); cb(out);
     };
     img.onerror=function(){URL.revokeObjectURL(url);cb('')}; img.src=url;
