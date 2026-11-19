@@ -113,7 +113,7 @@ a.btn.off{opacity:.45;pointer-events:none}
     <button class="link" id="manual" type="button">Add an item by hand</button>
     <button class="link" id="clear" type="button" hidden>Start a new trip</button>
   </div>
-  <div class="minor"><span id="bld" style="font-size:11px;color:var(--muted);align-self:center">v248</span><button class="link" id="recfg" type="button">Budget connection</button>
+  <div class="minor"><span id="bld" style="font-size:11px;color:var(--muted);align-self:center">v250</span><button class="link" id="recfg" type="button">Budget connection</button>
   </div>
 </div>
 
@@ -152,7 +152,7 @@ a.btn.off{opacity:.45;pointer-events:none}
 </div></div>
 <script>
 /* v248: installs updates by itself — see version.txt */
-(function(){var BUILD='248';
+(function(){var BUILD='250';
   function check(){ try{ fetch('version.txt?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():''}).then(function(v){
     v=String(v||'').trim(); if(!(v&&v!==BUILD&&/^\d+$/.test(v))||document.querySelector('.spin')) return;
     var k='cartTallyTried', t=''; try{t=localStorage.getItem(k)||''}catch(e){}
@@ -199,8 +199,11 @@ a.btn.off{opacity:.45;pointer-events:none}
     S.items.slice().reverse().forEach(function(i){
       var li=el('li','row'+(i.state==='fail'?' fail':i.unsure?' unsure':''));
       if(i.state==='pending'){
-        var p=el('div','sub');p.appendChild(el('span','spin'));p.appendChild(el('span','rd','Reading the tag…'));
-        li.appendChild(p);li.appendChild(el('div','amt','—'));list.appendChild(li);return;
+        var p=el('div','sub');p.appendChild(el('span','spin'));var rd=el('span','rd','Reading the tag…');rd.setAttribute('data-id',i.id);p.appendChild(rd);
+        li.appendChild(p);
+        var cx=el('button','chip','✕ Cancel');cx.type='button';cx.setAttribute('aria-label','Cancel this scan');
+        cx.onclick=function(){ cancelScan(i.id); };
+        li.appendChild(cx);list.appendChild(li);return;
       }
       var name=el('button','name',i.state==='fail'?'Couldn’t read that tag — tap to fill in':i.name);name.type='button';name.onclick=function(){edit(i.id)};
       li.appendChild(name);
@@ -208,7 +211,7 @@ a.btn.off{opacity:.45;pointer-events:none}
       var sub=el('div','sub');
       if(i.price>0) sub.appendChild(el('span',null,(i.wt&&i.perLb&&i.unit!=='lb')?(i.wt+' lb at '+usd(i.perLb)+'/lb'):(usd(i.price)+(i.unit==='lb'?' / lb':' each'))));
       var chip=el('button','chip'+(i.taxable?' on':''),i.taxable?'Taxed':'No tax');chip.type='button';chip.setAttribute('aria-pressed',i.taxable?'true':'false');
-      chip.onclick=function(){i.taxable=!i.taxable;save();draw()};sub.appendChild(chip);
+      chip.onclick=function(){i.taxable=!i.taxable;i.taxMemo=true;rememberTax(i.name,i.taxable);save();draw()};sub.appendChild(chip);
       if(i.unsure&&i.state!=='fail') sub.appendChild(el('span',null,'Check price'));
       li.appendChild(sub);
       var q=el('div','qty'),step=i.unit==='lb'?0.5:1;
@@ -253,25 +256,105 @@ a.btn.off{opacity:.45;pointer-events:none}
     return job;
   }
   function note(msg){var n=$('note');n.hidden=!msg;n.textContent=msg||''}
-  setInterval(function(){ var t=Date.now(); [].forEach.call(document.querySelectorAll('.rd'),function(x,i){
-    var pend=S.items.filter(function(z){return z.state==='pending'}).slice().reverse()[i]; if(pend&&pend.t0) x.textContent='Reading the tag… '+Math.round((t-pend.t0)/1000)+'s'; }); },1000);
+  setInterval(function(){ var t=Date.now(); [].forEach.call(document.querySelectorAll('.rd'),function(x){
+    var id=x.getAttribute('data-id'), pend=S.items.filter(function(z){return z.id===id})[0]; if(pend&&pend.t0) x.textContent='Reading the tag… '+Math.round((t-pend.t0)/1000)+'s'+(pend.stage?' · '+pend.stage:''); }); },1000);
+  // ---- v250: the phone asks Google's reader directly — several at once, each try time-limited, with a fast backup reader
+  var scans={};   // id → AbortController
+  function cancelScan(id){ var c=scans[id]; if(c){ try{c.abort()}catch(e){} delete scans[id]; }
+    S.items=S.items.filter(function(z){return z.id!==id}); note(''); save(); draw(); }
+  function deadList(){ try{return JSON.parse(localStorage.getItem('cartTallyDead')||'{}')}catch(e){return {}} }
+  function markDead(m){ var d=deadList(); d[m]=Date.now(); try{localStorage.setItem('cartTallyDead',JSON.stringify(d))}catch(e){} }
+  function alive(m){ var d=deadList(); return !(d[m]&&Date.now()-d[m]<7*86400000); }
+  function thinkFor(m){ return /2\.5/.test(m)?[{thinkingBudget:0}]:/lite/.test(m)?[null]:[{thinkingLevel:'minimal'},{thinkingLevel:'low'}]; }
+  function numOf(v){ if(typeof v==='number') return isFinite(v)?v:null; var m=String(v==null?'':v).replace(/,/g,'').match(/\d+(?:\.\d+)?/); return m?Number(m[0]):null; }
+  function jsonOf(t){ t=String(t||'').replace(/```(?:json)?/gi,''); var a=t.indexOf('{'), b=t.lastIndexOf('}'); if(a<0||b<a) return null; try{return JSON.parse(t.slice(a,b+1))}catch(e){return null} }
+  // one model, one question, a time limit; resolves {o,model} or rejects (code: TIMEOUT / DEAD / BUSY / KEY / other)
+  function askModel(model,prompt,b64,ms,outer){
+    var G=DATA.gem, tries=thinkFor(model).slice(), ctl=new AbortController(), timer=null;
+    var onOuter=function(){ try{ctl.abort()}catch(e){} };
+    if(outer){ if(outer.signal.aborted) onOuter(); else outer.signal.addEventListener('abort',onOuter); }
+    function go(){
+      var think=tries[0], cfg={temperature:0,responseMimeType:'application/json'}; if(think) cfg.thinkingConfig=think;
+      return fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent',{method:'POST',signal:ctl.signal,
+        headers:{'Content-Type':'application/json','x-goog-api-key':G.key},
+        body:JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:'image/jpeg',data:b64}}]}],generationConfig:cfg})})
+      .then(function(r){ return r.text().then(function(t){ return {code:r.status,t:t}; }); })
+      .then(function(x){
+        if(x.code===200){ var o=JSON.parse(x.t), c=o.candidates&&o.candidates[0], txt=((c&&c.content&&c.content.parts)||[]).map(function(p){return p.text||''}).join('');
+          return {o:jsonOf(txt)||{},model:model,raw:txt}; }
+        var msg=''; try{msg=JSON.parse(x.t).error.message}catch(e){msg=x.t.slice(0,120)}
+        if(x.code===400&&/think/i.test(msg)&&tries.length>1){ tries.shift(); return go(); }
+        var er=new Error(msg); er.code=x.code===404?'DEAD':(x.code===429||x.code===503)?'BUSY':(x.code===401||x.code===403||/API key/i.test(msg))?'KEY':'ERR'; throw er;
+      });
+    }
+    var timeout=new Promise(function(_,rej){ timer=setTimeout(function(){ try{ctl.abort()}catch(e){} var e=new Error('timeout'); e.code='TIMEOUT'; rej(e); },ms); });
+    return Promise.race([go(),timeout]).then(function(v){clearTimeout(timer);return v},function(e){clearTimeout(timer); if(e&&e.name==='AbortError'&&!e.code){ e=new Error(outer&&outer.signal.aborted?'cancelled':'timeout'); e.code=outer&&outer.signal.aborted?'CANCEL':'TIMEOUT'; } throw e; });
+  }
+  // try models in order: the first that answers wins; a name Google no longer offers is skipped for a week
+  function askList(list,prompt,b64,ms,outer,it,label){
+    list=list.filter(alive); var i=0, last=null;
+    function next(){
+      if(outer.signal.aborted){ var c=new Error('cancelled'); c.code='CANCEL'; return Promise.reject(c); }
+      if(i>=list.length) return Promise.reject(last||Object.assign(new Error('no reader'),{code:'ERR'}));
+      var m=list[i++]; if(it){it.stage=label;}
+      return askModel(m,prompt,b64,ms,outer).catch(function(e){ last=e; if(e.code==='DEAD'){ markDead(m); return next(); } if(e.code==='KEY'||e.code==='CANCEL') throw e; return next(); });
+    }
+    return next();
+  }
+  function readDirect(b64,it){
+    var G=DATA.gem, outer=new AbortController(); scans[it.id]=outer;
+    // the best reader gets 12 s; the fast backup reader starts if the best one fails, or hasn't answered by 7 s — first good answer wins
+    var good=function(v){ if(numOf(v.o.price)>0||(v.o&&v.o.name)) return v; throw Object.assign(new Error('no price'),{code:'NOPRICE',v:v}); };
+    var first=new Promise(function(res,rej){
+      var settled=false, fails=0, lastE=null, liteGo=null, liteStarted=false;
+      function ok(v){ if(!settled){settled=true;clearTimeout(liteGo);res(v);} }
+      function bad(e){ lastE=e; if(e&&(e.code==='KEY'||e.code==='CANCEL')){ if(!settled){settled=true;clearTimeout(liteGo);rej(e);} return; }
+        if(++fails>=2&&!settled){ settled=true; rej(lastE); } }
+      function startLite(){ if(liteStarted||settled) return; liteStarted=true; clearTimeout(liteGo);
+        askList(G.lite||[],G.prompt,b64,12000,outer,it,'backup reader').then(good).then(ok,bad); }
+      liteGo=setTimeout(startLite,7000);
+      askList(G.best||[],G.prompt,b64,12000,outer,it,'').then(good).then(ok,function(e){ bad(e); startLite(); });
+    });
+    return first.then(function(v){
+      var o=v.o||{}, price=numOf(o.price), doubt=price>=100&&Number.isInteger(price);
+      if(price>0&&!doubt) return v;
+      // no price, or a suspicious whole-dollar price like 312 → one quick second question
+      return askList((G.best||[]).concat(G.lite||[]),G.promptPrice,b64,9000,outer,it,'double-checking').then(function(v2){
+        var p2=numOf(v2.o.price); if(p2>0){ if(p2!==price) o.sure=false; o.price=p2; if(!o.name&&v2.o.name) o.name=v2.o.name; } else if(doubt) o.sure=false;
+        return v;
+      },function(){ if(doubt) o.sure=false; return v; });
+    }).then(function(v){ delete scans[it.id]; it.stage=''; var o=v.o||{};
+      return {name:o.name||'',price:numOf(o.price),unit:o.unit,taxable:o.taxable!==false,upc:o.upc,sure:o.sure===true,weight:numOf(o.weight),perLb:numOf(o.perLb),
+              why:numOf(o.price)>0?'':'no price found on the label'};
+    },function(e){ delete scans[it.id]; it.stage=''; throw e; });
+  }
+  // remembered Taxed / No tax choices (yours, shared through the budget)
+  function taxKey(n){ return String(n||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().slice(0,60); }
+  function taxMemo(){ var m={}; try{m=JSON.parse(localStorage.getItem('cartTallyTax')||'{}')}catch(e){} var srv=(DATA&&DATA.taxMemo)||{}; for(var k in srv) if(!(k in m)) m[k]=srv[k]; return m; }
+  function rememberTax(name,t){ var k=taxKey(name); if(!k) return; var m={}; try{m=JSON.parse(localStorage.getItem('cartTallyTax')||'{}')}catch(e){} m[k]=!!t;
+    try{localStorage.setItem('cartTallyTax',JSON.stringify(m))}catch(e){} if(S.cfg) api('taxSet',{name:name,taxable:!!t}).catch(function(){}); }
   function readTag(file){
     var it={id:uid(),state:'pending',name:'',price:0,qty:1,unit:'each',taxable:true,upc:null,unsure:false,t0:Date.now()};
     S.items.push(it);draw();
     shrink(file,function(b64){
       if(!b64){it.state='fail';it.unsure=true;note('That photo couldn’t be opened. Try again.');save();draw();return;}
-      readTagApi(b64).then(function(r){
+      (DATA&&DATA.gem&&DATA.gem.key?readDirect(b64,it).catch(function(e){ if(e&&!e.code&&netErr(e)&&S.items.indexOf(it)>=0){ it.stage='via your budget'; return readTagApi(b64); } throw e; }):readTagApi(b64)).then(function(r){
+        if(S.items.indexOf(it)<0) return;   // cancelled
         r=r||{}; var p=Number(r.price);
         it.name=String(r.name||'').slice(0,80)||'Item'; it.price=p>0?Math.round(p*100)/100:0;
         it.unit=r.unit==='lb'?'lb':'each'; it.taxable=r.taxable!==false; it.upc=r.upc?String(r.upc).replace(/\D/g,''):null;
         it.wt=Number(r.weight)>0?Number(r.weight):null; it.perLb=Number(r.perLb)>0?Number(r.perLb):null;
         if(it.wt&&it.perLb&&it.unit==='lb'&&Math.abs(it.wt*it.perLb-it.price)<0.02) it.unit='each';   // weighed package read as per-lb: the price is the package total
         it.unsure=!r.sure||!(p>0); it.state=(p>0||r.name)?'ok':'fail';
+        var tm=taxMemo()[taxKey(it.name)]; if(typeof tm==='boolean'){ it.taxable=tm; it.taxMemo=true; }   // your earlier Taxed / No tax choice
         note(p>0?'':('That tag didn’t give a price'+(r.why?' ('+String(r.why).slice(0,90)+')':'')+'. Tap the item to type it, or rescan.')); save(); draw();
       }).catch(function(e){
+        if(S.items.indexOf(it)<0||(e&&e.code==='CANCEL')) return;   // cancelled
         it.state='fail'; it.unsure=true; var m=String(e&&e.message||e);
+        if(e&&e.code==='KEY'){ note('Google didn’t accept the tag reader key. In the sheet: 💰 Budget menu → 🛒 Cart Tally setup, then reopen this app.'); save(); draw(); return; }
+        if(e&&e.code==='TIMEOUT') m='SLOW'; else if(e&&e.code==='BUSY') m='BUSY';
         if(/NOKEY/.test(m)) note('Tag reading isn’t set up yet. In the sheet: 💰 Budget menu → 🛒 Cart Tally setup.');
-        else if(/SLOW/.test(m)) note('That tag took too long to read. Rescan it, or tap the item to type the price.');
+        else if(/SLOW/.test(m)) note('Google’s reader was too slow on that one (both readers tried). Rescan it, or tap the item to type the price.');
         else if(/BUSY/.test(m)) note('Google’s free reader is busy or out of scans for today. Wait a minute and rescan, or tap the item to type the price.');
         else if(/Failed to fetch|Load failed|NetworkError/i.test(m)) note('Couldn’t reach your budget (tried twice). If you’re on store Wi-Fi, turn Wi-Fi off and rescan — or tap the item to type the price.');
         else note('One tag couldn’t be read ('+m.replace(/^Error:\s*/,'').slice(0,90)+'). Scan it again up close (let the tag fill most of the photo) or tap it to fill in the price.');
