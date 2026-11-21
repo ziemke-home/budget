@@ -67,6 +67,19 @@ select,input[type=text],input[type=number]{background:var(--card);border:1px sol
 #glAddF button{flex:none;border:0;border-radius:8px;background:var(--go);color:var(--go-ink);font-weight:600;padding:0 14px;cursor:pointer}
 #glQuick{display:flex;gap:6px;flex-wrap:wrap}
 #glQuick .chip{background:var(--chip)}
+#glQuick .chip.stp{background:#fff3c4;color:#5a4500}
+#glQuick .qe{display:inline-flex;align-items:center;gap:2px;background:var(--chip);border-radius:999px;padding:2px 4px 2px 2px;font-size:14px}
+#glQuick .link{font-size:13px;padding:6px 4px}
+.star{flex:none;background:none;border:0;font-size:22px;line-height:1;color:var(--muted);padding:4px 6px;cursor:pointer}
+.star.on{color:#d9a400}
+#glAddF .star{background:none;color:var(--muted);padding:0 4px;font-size:26px;font-weight:400}
+#glAddF .star.on{color:#d9a400}
+#gl .hd{flex:none;touch-action:none;user-select:none;-webkit-user-select:none;color:var(--muted);font-size:18px;letter-spacing:-3px;padding:6px 6px 6px 0;cursor:grab}
+#gl li.drag{background:var(--chip);border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.15)}
+#gl .nm{cursor:text}
+#gl .gled{display:flex;gap:6px;flex:1;min-width:0}
+#gl .gled input{flex:1;min-width:0}
+#gl .gled .chip{background:var(--go);color:var(--go-ink)}
 #glGotBox summary{cursor:pointer;color:var(--muted);font-size:13px;padding:4px 0}
 .glm{grid-column:1/-1;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--chip);border-radius:8px;padding:6px 8px;font-size:13px}
 .glm b{font-weight:600}
@@ -132,7 +145,7 @@ a.btn.off{opacity:.45;pointer-events:none}
   <section id="gl" hidden>
     <div class="glh"><b>Still need</b><span id="glSync"></span></div>
     <ul id="glNeed"></ul>
-    <form id="glAddF" autocomplete="off"><input id="glIn" type="text" placeholder="Add to the list…" aria-label="Add to the list" maxlength="60"><button type="submit">Add</button></form>
+    <form id="glAddF" autocomplete="off"><button type="button" class="star" id="glStar" aria-pressed="false" aria-label="Make it a staple (always in quick add)">☆</button><input id="glIn" type="text" placeholder="Add to the list…" aria-label="Add to the list" maxlength="60"><button type="submit">Add</button></form>
     <div id="glQuick"></div>
     <details id="glGotBox" hidden><summary id="glGotSum">In the cart</summary><ul id="glGot"></ul>
       <button class="link" id="glClear" type="button">Clear checked items</button></details>
@@ -144,7 +157,7 @@ a.btn.off{opacity:.45;pointer-events:none}
     <button class="link" id="manual" type="button">Add an item by hand</button>
     <button class="link" id="clear" type="button" hidden>Start a new trip</button>
   </div>
-  <div class="minor"><span id="bld" style="font-size:11px;color:var(--muted);align-self:center">v253</span><button class="link" id="recfg" type="button">Budget connection</button>
+  <div class="minor"><span id="bld" style="font-size:11px;color:var(--muted);align-self:center">v254</span><button class="link" id="recfg" type="button">Budget connection</button>
   </div>
 </div>
 
@@ -183,7 +196,7 @@ a.btn.off{opacity:.45;pointer-events:none}
 </div></div>
 <script>
 /* v248: installs updates by itself — see version.txt */
-(function(){var BUILD='253';
+(function(){var BUILD='254';
   function check(){ try{ fetch('version.txt?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():''}).then(function(v){
     v=String(v||'').trim(); if(!(v&&v!==BUILD&&/^\d+$/.test(v))||document.querySelector('.spin')) return;
     var k='cartTallyTried', t=''; try{t=localStorage.getItem(k)||''}catch(e){}
@@ -417,13 +430,18 @@ a.btn.off{opacity:.45;pointer-events:none}
   }
   function glApply(op){   // change the list on this phone right away
     var L=S.gl.items;
-    if(op.fn==='listAdd'){ if(!L.some(function(x){return !x.got&&x.name.toLowerCase()===op.name.toLowerCase()})) L.push({id:op.id,name:op.name,qty:op.qty||'',got:0}); }
+    if(op.fn==='listAdd'){ if(!L.some(function(x){return !x.got&&x.name.toLowerCase()===op.name.toLowerCase()})) L.push({id:op.id,name:op.name,qty:op.qty||'',got:0}); if(op.staple) glApply({fn:'listStaple',name:op.name,on:true}); }
+    else if(op.fn==='listEdit'){ L.forEach(function(x){ if(x.id===op.id){ x.name=op.name; x.qty=op.qty||''; } }); }
+    else if(op.fn==='listOrder'){ var rk=function(id){var i=op.ids.indexOf(id);return i<0?1e6:i}; S.gl.items=L.map(function(x,i){return{x:x,i:i}}).sort(function(a,b){return (rk(a.x.id)-rk(b.x.id))||(a.i-b.i)}).map(function(o){return o.x}); }
+    else if(op.fn==='listStaple'){ var st=(S.gl.staples||[]).filter(function(s){return String(s).toLowerCase()!==op.name.toLowerCase()}); if(op.on) st.push(op.name); S.gl.staples=st;
+      S.gl.past=(S.gl.past||[]).filter(function(s){return String(s).toLowerCase()!==op.name.toLowerCase()}); if(!op.on) S.gl.past.unshift(op.name); }
+    else if(op.fn==='listForget'){ var k=op.name.toLowerCase(); S.gl.staples=(S.gl.staples||[]).filter(function(s){return String(s).toLowerCase()!==k}); S.gl.past=(S.gl.past||[]).filter(function(s){return String(s).toLowerCase()!==k}); }
     else if(op.fn==='listSet'){ L.forEach(function(x){ if(x.id===op.id) x.got=op.got?Date.now():0; }); }
     else if(op.fn==='listDel'){ S.gl.items=L.filter(function(x){return x.id!==op.id}); }
     else if(op.fn==='listClear'){ S.gl.items=L.filter(function(x){return !x.got}); }
   }
   function glDo(op){ glApply(op); S.glOps.push(op); save(); drawList(); glFlush(); }
-  function glAdd(name,qty){ name=String(name||'').trim(); if(!name) return; glDo({fn:'listAdd',name:name,qty:qty||'',id:'g'+Date.now().toString(36)+Math.random().toString(36).slice(2,6)}); }
+  function glAdd(name,qty,staple){ name=String(name||'').trim(); if(!name) return; glDo({fn:'listAdd',name:name,qty:qty||'',staple:!!staple,id:'g'+Date.now().toString(36)+Math.random().toString(36).slice(2,6)}); }
   function glSet(id,got){ glDo({fn:'listSet',id:id,got:!!got}); }
   function glFlush(){
     if(glBusy||!S.cfg) return;
@@ -434,33 +452,74 @@ a.btn.off{opacity:.45;pointer-events:none}
     },function(e){ glBusy=false; drawList(netErr(e)?'offline':'error'); setTimeout(glFlush,8000); });
   }
   function glRefresh(){
-    if(!S.cfg||glBusy||S.glOps.length) return;
+    if(!S.cfg||glBusy||S.glOps.length||glEditId||glDragging) return;
     glBusy=true; api('list',{}).then(function(state){ glBusy=false; if(state&&!S.glOps.length) S.gl=state; glLast=Date.now(); save(); drawList(); },
       function(e){ glBusy=false; drawList(netErr(e)?'offline':'error'); });
   }
   setInterval(function(){ if(!document.hidden) { if(S.glOps.length) glFlush(); else if(Date.now()-glLast>30000) glRefresh(); } },5000);
   document.addEventListener('visibilitychange',function(){ if(!document.hidden) glRefresh(); });
+  var glEditId=null, glQuickEdit=false, glStar=false, glDragging=null, glDrawLater=false;
+  function splitQty(v){ v=String(v||'').trim(); var m=v.match(/^(.*?)\s*[x×]\s*(\d+)$/i)||v.match(/^(\d+)\s+(.+)$/), name=v, qty='';
+    if(m){ if(/^\d+$/.test(m[1])){ qty=m[1]; name=m[2]; } else { name=m[1]; qty=m[2]; } } return {name:name.trim(),qty:qty}; }
+  function isStaple(n){ n=String(n).toLowerCase(); return (S.gl.staples||[]).some(function(s){return String(s).toLowerCase()===n}); }
+  function glDrag(e,li){   // v254: drag the ⋮⋮ handle up or down
+    e.preventDefault(); var ul=$('glNeed'), hd=e.currentTarget; glDragging=li; li.classList.add('drag');
+    function mv(ev){ if(ev.pointerId!==e.pointerId) return; ev.preventDefault(); var y=ev.clientY, sibs=[].slice.call(ul.children).filter(function(n){return n!==li&&n.dataset.id}), before=null;
+      for(var i=0;i<sibs.length;i++){ var r=sibs[i].getBoundingClientRect(); if(y<r.top+r.height/2){ before=sibs[i]; break; } }
+      if(before){ if(li.nextSibling!==before) ul.insertBefore(li,before); } else if(ul.lastChild!==li) ul.appendChild(li); }
+    function up(ev){ if(ev&&ev.pointerId!==e.pointerId) return; window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up); window.removeEventListener('pointercancel',up);
+      li.classList.remove('drag'); glDragging=null;
+      var ids=[].slice.call(ul.children).map(function(n){return n.dataset.id}).filter(Boolean);
+      var was=S.gl.items.filter(function(x){return !x.got}).map(function(x){return x.id});
+      if(ids.join()!==was.join()) glDo({fn:'listOrder',ids:ids}); else drawList(); }
+    window.addEventListener('pointermove',mv,{passive:false}); window.addEventListener('pointerup',up); window.addEventListener('pointercancel',up);
+  }
   function drawList(state){
     var box=$('gl'); if(!S.cfg){ box.hidden=true; return; } box.hidden=false;
+    if(glDragging){ glDrawLater=true; return; }
+    var keepEl=glEditId&&document.querySelector('#glNeed .gled input'), keep=keepEl?keepEl.value:null;
     var need=S.gl.items.filter(function(x){return !x.got}), got=S.gl.items.filter(function(x){return x.got});
+    if(glEditId&&!need.some(function(x){return x.id===glEditId})) glEditId=null;
     $('glSync').textContent=state==='offline'?'⏳ will sync when you have signal':S.glOps.length?'saving…':(need.length?need.length+' to get':'all set');
     var ul=$('glNeed'); ul.textContent='';
     if(!need.length){ var e0=el('li',null); e0.appendChild(el('span','nm','Nothing on the list. Add something below — anyone with Cart Tally can.')); e0.style.color='var(--muted)'; ul.appendChild(e0); }
-    need.forEach(function(x){ var li=el('li'); var ck=el('button','ck','');ck.type='button';ck.setAttribute('aria-label','Got '+x.name);ck.onclick=function(){glSet(x.id,true)};
-      var nm=el('span','nm',x.name); if(x.qty) nm.appendChild(el('small',null,x.qty));
+    need.forEach(function(x){ var li=el('li'); li.dataset.id=x.id;
+      if(glEditId===x.id){   // v254: edit in place
+        var f=el('form','gled'), inp=el('input'); inp.type='text'; inp.maxLength=60; inp.setAttribute('aria-label','Edit '+x.name);
+        inp.value=keep!=null?keep:((x.qty?x.qty+' ':'')+x.name);
+        var ok=el('button','chip','Save'); ok.type='submit';
+        var cx=el('button','x','✕'); cx.type='button'; cx.setAttribute('aria-label','Cancel'); cx.onclick=function(){ glEditId=null; drawList(); };
+        f.onsubmit=function(ev){ ev.preventDefault(); var v=splitQty(inp.value); glEditId=null;
+          if(v.name&&(v.name!==x.name||v.qty!==(x.qty||''))) glDo({fn:'listEdit',id:x.id,name:v.name,qty:v.qty}); else drawList(); };
+        f.appendChild(inp); f.appendChild(ok); f.appendChild(cx); li.appendChild(f); ul.appendChild(li);
+        if(keep==null) setTimeout(function(){ inp.focus(); inp.select(); },0); return; }
+      var hd=el('span','hd','⋮⋮'); hd.setAttribute('aria-label','Drag to reorder'); hd.addEventListener('pointerdown',function(ev){ glDrag(ev,li); });
+      var ck=el('button','ck','');ck.type='button';ck.setAttribute('aria-label','Got '+x.name);ck.onclick=function(){glSet(x.id,true)};
+      var nm=el('span','nm',(isStaple(x.name)?'★ ':'')+x.name); if(x.qty) nm.appendChild(el('small',null,x.qty));
+      nm.title='Tap to edit'; nm.onclick=function(){ glEditId=x.id; drawList(); };
       var del=el('button','x','✕');del.type='button';del.setAttribute('aria-label','Remove '+x.name);del.onclick=function(){glDo({fn:'listDel',id:x.id})};
-      li.appendChild(ck);li.appendChild(nm);li.appendChild(del);ul.appendChild(li); });
+      li.appendChild(hd);li.appendChild(ck);li.appendChild(nm);li.appendChild(del);ul.appendChild(li); });
     var gb=$('glGot'); gb.textContent=''; $('glGotBox').hidden=!got.length; $('glGotSum').textContent='In the cart ('+got.length+')';
     got.forEach(function(x){ var li=el('li','got'); var ck=el('button','ck on','✓');ck.type='button';ck.setAttribute('aria-label','Put '+x.name+' back on the list');ck.onclick=function(){glSet(x.id,false)};
       var nm=el('span','nm',x.name); if(x.qty) nm.appendChild(el('small',null,x.qty)); li.appendChild(ck);li.appendChild(nm);gb.appendChild(li); });
     var q=$('glQuick'); q.textContent=''; var on={}; need.forEach(function(x){on[x.name.toLowerCase()]=1});
-    (S.gl.past||[]).filter(function(n){return !on[String(n).toLowerCase()]}).slice(0,8).forEach(function(n){
-      var c=el('button','chip','＋ '+n);c.type='button';c.onclick=function(){glAdd(n)};q.appendChild(c); });
+    var st=(S.gl.staples||[]), past=(S.gl.past||[]).filter(function(n){return !isStaple(n)});
+    if(glQuickEdit){   // v254: star / unstar, or ✕ to take it off quick add
+      st.concat(past.slice(0,30)).forEach(function(n){ var s1=isStaple(n), c=el('span','qe');
+        var sb=el('button','star'+(s1?' on':''),s1?'★':'☆'); sb.type='button'; sb.setAttribute('aria-label',(s1?'Unstar ':'Make a staple: ')+n); sb.onclick=function(){ glDo({fn:'listStaple',name:n,on:!s1}); };
+        var d=el('button','x','✕'); d.type='button'; d.setAttribute('aria-label','Remove '+n+' from quick add'); d.onclick=function(){ glDo({fn:'listForget',name:n}); };
+        c.appendChild(sb); c.appendChild(el('span',null,n)); c.appendChild(d); q.appendChild(c); });
+    } else {
+      st.filter(function(n){return !on[String(n).toLowerCase()]}).forEach(function(n){ var c=el('button','chip stp','★ '+n);c.type='button';c.onclick=function(){glAdd(n)};q.appendChild(c); });
+      past.filter(function(n){return !on[String(n).toLowerCase()]}).slice(0,8).forEach(function(n){ var c=el('button','chip','＋ '+n);c.type='button';c.onclick=function(){glAdd(n)};q.appendChild(c); });
+    }
+    if(st.length||past.length){ var tg=el('button','link',glQuickEdit?'Done':'Edit quick add'); tg.type='button'; tg.onclick=function(){ glQuickEdit=!glQuickEdit; drawList(); }; q.appendChild(tg); }
   }
-  $('glAddF').addEventListener('submit',function(e){ e.preventDefault(); var v=$('glIn').value.trim(); if(!v) return;
-    var m=v.match(/^(.*?)\s*[x×]\s*(\d+)$/i)||v.match(/^(\d+)\s+(.*)$/); var name=v, qty='';
-    if(m){ if(/^\d+$/.test(m[1])){ qty=m[1]; name=m[2]; } else { name=m[1]; qty=m[2]; } }
-    glAdd(name,qty); $('glIn').value=''; });
+  function setStar(v){ glStar=v; var b=$('glStar'); b.textContent=v?'★':'☆'; b.classList.toggle('on',v); b.setAttribute('aria-pressed',v?'true':'false'); }
+  $('glStar').onclick=function(){ setStar(!glStar); };
+  $('glAddF').addEventListener('submit',function(e){ e.preventDefault(); var v=splitQty($('glIn').value); if(!v.name) return;
+    glAdd(v.name,v.qty,glStar); $('glIn').value=''; setStar(false); });
+  document.addEventListener('pointerup',function(){ if(glDrawLater&&!glDragging){ glDrawLater=false; setTimeout(drawList,0); } });
   $('glClear').onclick=function(){ glDo({fn:'listClear'}); };
   function shrink(file,cb){
     var url=URL.createObjectURL(file), img=new Image();
